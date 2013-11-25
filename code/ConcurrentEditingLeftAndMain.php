@@ -4,25 +4,34 @@
  */
 class ConcurrentEditingLeftAndMain extends Extension {
 
+	static $edit_timeout = 10;
+	static $page_ping_interval = 10;
+	static $overwrite_display_duration = 20;
+
+	function onAfterInit() {
+		Requirements::javascript('concurrentediting/javascript/ConcurrentEditing.js');
+	}
+
+}
+
+class ConcurentEditingLeftAndMain_Controller extends Controller {
 
 	static $allowed_actions = array(
 		'concurrentEditingPing',
 		'restoreRemotelyDeleted',
 	);
-	
+
 	static $edit_timeout = 10;
 	static $page_ping_interval = 3;
 	static $overwrite_display_duration = 20;
-	
-	
-	function onAfterInit() {
-		Requirements::javascript('concurrentediting/javascript/ConcurrentEditing.js');
-	}
-	
-	function concurrentEditingPing() { echo "DDD"; die();
+
+	function concurrentEditingPing() {
+
 		if (!isset($_REQUEST['ID'])) die('no id passed');
-		
-		$page = $this->owner->getRecord($_REQUEST['ID']);
+		//$objConcurrent = new ConcurrentEditingSiteTree();
+		//$page = $objConcurrent->getMyOwner($_REQUEST['ID']);
+		$page = Page::get()->byID($_REQUEST['ID']);
+
 		if (!$page) {
 			// Page has not been found
 			$return = array('status' => 'not_found');
@@ -38,9 +47,10 @@ class ConcurrentEditingLeftAndMain extends Extension {
 			$page->UsersCurrentlyEditing()->add(Member::currentUser());
 			DB::query("UPDATE \"SiteTree_UsersCurrentlyEditing\" SET \"LastPing\" = '".date('Y-m-d H:i:s')."'
 				WHERE \"MemberID\" = ".Member::currentUserID()." AND \"SiteTreeID\" = {$page->ID}");
-			
+
 			// Page exists, who else is editing it?
 			$names = array();
+			//  print_r($page->UsersCurrentlyEditing());
 			foreach($page->UsersCurrentlyEditing() as $user) {
 				if ($user->ID == Member::currentUserId()) continue;
 				$names[] = trim($user->FirstName . ' ' . $user->Surname);
@@ -50,7 +60,7 @@ class ConcurrentEditingLeftAndMain extends Extension {
 				$return['isLastEditor'] = true;
 				$lastTwoVersions = $page->allVersions('', '', 2)->toArray();
 				if (count($lastTwoVersions) >= 2) {
-					$url = "admin/compareversions/{$page->ID}/?From={$lastTwoVersions[1]->Version}&To={$page->Version}";
+					$url = "admin/pages/history/show/$page->ID}/{$page->Version}";
 					$link = "<a href=\"{$url}\">here</a>";
 					$return['compareVersionsLink'] = $link;
 					$member = DataObject::get_by_id('Member', $lastTwoVersions[1]->LastEditedByID);
@@ -65,17 +75,17 @@ class ConcurrentEditingLeftAndMain extends Extension {
 				$return['status'] = 'not_current_version';
 			}
 		}
-		
+
 		// Delete pings older than *timeout* from the cache...
 		DB::query("DELETE FROM \"SiteTree_UsersCurrentlyEditing\" WHERE \"LastPing\" < '".date('Y-m-d H:i:s', time()-self::$edit_timeout)."'");
-		
+
 		return Convert::array2json($return);
 	}
-	
+
 	function restoreRemotelyDeleted() {
 		$response = singleton('CMSMain')->restore();
 	}
-	
+
 	function onAfterSave(&$record) {
 		$record->SaveCount++;
 		$record->writeWithoutVersion();

@@ -34,8 +34,9 @@ class ConcurrentEditingSiteTree extends DataExtension {
 			id="SiteTree_Alert"
 			pagepinginterval="' . ConcurrentEditingLeftAndMain::$page_ping_interval . '"
 			overwritedisplayduration="' . ConcurrentEditingLeftAndMain::$overwrite_display_duration . '"
+			class="message"
 		></div>');
-		$fields->insertBefore($alert, 'Root');
+		$fields->insertBefore($alert, 'Title');
 	}
 
 	function onBeforeWrite() {
