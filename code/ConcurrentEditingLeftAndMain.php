@@ -2,7 +2,9 @@
 /**
  * @package concurrentediting
  */
-class ConcurrentEditingLeftAndMain extends LeftAndMainDecorator {
+class ConcurrentEditingLeftAndMain extends Extension {
+
+
 	static $allowed_actions = array(
 		'concurrentEditingPing',
 		'restoreRemotelyDeleted',
@@ -13,12 +15,11 @@ class ConcurrentEditingLeftAndMain extends LeftAndMainDecorator {
 	static $overwrite_display_duration = 20;
 	
 	
-	function init() {
-		parent::init();
+	function onAfterInit() {
 		Requirements::javascript('concurrentediting/javascript/ConcurrentEditing.js');
 	}
 	
-	function concurrentEditingPing() {
+	function concurrentEditingPing() { echo "DDD"; die();
 		if (!isset($_REQUEST['ID'])) die('no id passed');
 		
 		$page = $this->owner->getRecord($_REQUEST['ID']);

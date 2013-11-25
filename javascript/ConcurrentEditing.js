@@ -1,20 +1,20 @@
-var CurrentPage = {
-           id: function() { return $('Form_EditForm_ID') ? $('Form_EditForm_ID').value : null; },
-    saveCount: function() { return $('SiteTree_Alert') ? $('SiteTree_Alert').getAttribute('savecount') : null; },
- setSaveCount: function(count) { if ($('SiteTree_Alert')) { $('SiteTree_Alert').setAttribute('savecount', count); } },
-    isDeleted: function() { return $('SiteTree_Alert') ? $('SiteTree_Alert').getAttribute('deletedfromstage') : null; }
-};
-
-
 // Protect global namespace using this throwaway function.
-(function ConcurrentEditingNamespace() {
+(function($){
 
-	var timerID = null;
+    var CurrentPage = {
+        id: function() { return $('#Form_EditForm_ID') ? $('#Form_EditForm_ID').val() : null; },
+        saveCount: function() { return $('#SiteTree_Alert') ? $('#SiteTree_Alert').attr('savecount') : null; },
+        setSaveCount: function(count) { if ($('#SiteTree_Alert')) { $('#SiteTree_Alert').attr('savecount', count); } },
+        isDeleted: function() { return $('#SiteTree_Alert') ? $('#SiteTree_Alert').attr('deletedfromstage') : null; }
+    };
+
+
+    var timerID = null;
 	var saveHasBeenClicked = false;
 	var showOverwroteMessage = false;
 
 	function getSetting(attr) {
-		return $('SiteTree_Alert').getAttribute(attr);
+		return $('SiteTree_Alert').attr(attr);
 	}
 
 	/**
@@ -24,8 +24,8 @@ var CurrentPage = {
 	function pingFunction() {
 		if ($('Form_EditForm_ID') && $('SiteTree_Alert') && !window.location.toString().match(/compareversions/)) {
 			var url = "admin/concurrentEditingPing?ID="+CurrentPage.id()+'&SaveCount='+CurrentPage.saveCount();
-			new Ajax.Request(url, {
-				onSuccess: function(t) {
+			$.ajax(url, {
+                success: function(t) {
 					var data = eval('('+t.responseText+')');
 					var hasAlert = false;
 
@@ -99,6 +99,28 @@ var CurrentPage = {
 	 * Register the SiteTree 'onload' function, called whenever a SiteTree page is
 	 * opened or reloaded in the CMS.
 	 */
+
+    $.entwine('ConcurrentEditingNamespace', function($){
+
+        $('#Form_EditForm').entwine({
+            onmatch: function(){
+                //this.observeMethod('PageLoaded', this.adminPageHandler);
+                //this.observeMethod('BeforeSave', this.beforeSave);
+                this.adminPageHandler();
+            },
+            adminPageHandler: function(){
+                if (!timerID && ($('Form_EditForm_ID') && $('SiteTree_Alert'))) {
+                    timerID = setInterval(pingFunction, getSetting('pagePingInterval')*100000);
+                }
+            },
+            beforeSave: function(){
+                saveHasBeenClicked = true;
+            }
+        });
+
+    });
+
+    /*
 	Behaviour.register({
 		'#Form_EditForm' : {
 			initialize : function() {
@@ -118,5 +140,8 @@ var CurrentPage = {
 			}
 		} // #Form_EditForm
 	});
+	// write this in entwine
+	*/
 
-})(); // end of Namespace
+
+})(jQuery); // end of Namespace
