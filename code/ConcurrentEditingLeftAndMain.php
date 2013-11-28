@@ -5,11 +5,12 @@
 class ConcurrentEditingLeftAndMain extends Extension {
 
 	static $edit_timeout = 10;
-	static $page_ping_interval = 10;
+	static $page_ping_interval = 300;
 	static $overwrite_display_duration = 20;
 
 	function onAfterInit() {
 		Requirements::javascript('concurrentediting/javascript/ConcurrentEditing.js');
+		Requirements::css('concurrentediting/css/styles.css');
 	}
 
 }
@@ -17,8 +18,7 @@ class ConcurrentEditingLeftAndMain extends Extension {
 class ConcurentEditingLeftAndMain_Controller extends Controller {
 
 	static $allowed_actions = array(
-		'concurrentEditingPing',
-		'restoreRemotelyDeleted',
+		'concurrentEditingPing'
 	);
 
 	static $edit_timeout = 10;
@@ -26,69 +26,81 @@ class ConcurentEditingLeftAndMain_Controller extends Controller {
 	static $overwrite_display_duration = 20;
 
 	function concurrentEditingPing() {
+		$arrRet = array(
+			'status' => 'not_found'
+		);
 
-		if (!isset($_REQUEST['ID'])) die('no id passed');
-		//$objConcurrent = new ConcurrentEditingSiteTree();
-		//$page = $objConcurrent->getMyOwner($_REQUEST['ID']);
-		$page = Page::get()->byID($_REQUEST['ID']);
+		if(isset($_REQUEST['lastedit']) && isset($_REQUEST['Object']) && isset($_REQUEST['ID']) && $_REQUEST['Object']!= "item"){
+			$arrData = Convert::raw2sql($_REQUEST);
+			$strLastEditted = $arrData['lastedit'];
+			$strClassName = $arrData['Object'];
+			$iID = intval($arrData['ID']);
 
-		if (!$page) {
-			// Page has not been found
-			$return = array('status' => 'not_found');
-		} elseif ($page->getIsDeletedFromStage()) {
-			// Page has been deleted from stage
-			$return = array(
-				'status' => 'deleted',
-				'restoreDeletedUrl' => 'admin/restoreRemotelyDeleted?ID=' . (int)$page->ID,
-				'viewDeletedUrl' => 'admin/show/' . (int)$page->ID,
-			);
-		} else {
-			// Mark me as editing if I'm not already
-			$page->UsersCurrentlyEditing()->add(Member::currentUser());
-			DB::query("UPDATE \"SiteTree_UsersCurrentlyEditing\" SET \"LastPing\" = '".date('Y-m-d H:i:s')."'
-				WHERE \"MemberID\" = ".Member::currentUserID()." AND \"SiteTreeID\" = {$page->ID}");
 
-			// Page exists, who else is editing it?
-			$names = array();
-			//  print_r($page->UsersCurrentlyEditing());
-			foreach($page->UsersCurrentlyEditing() as $user) {
-				if ($user->ID == Member::currentUserId()) continue;
-				$names[] = trim($user->FirstName . ' ' . $user->Surname);
-			}
-			$return = array('status' => 'editing', 'names' => $names, 'isLastEditor' => false);
-			if ($page->LastEditedByID == Member::currentUserID()) {
-				$return['isLastEditor'] = true;
-				$lastTwoVersions = $page->allVersions('', '', 2)->toArray();
-				if (count($lastTwoVersions) >= 2) {
-					$url = "admin/pages/history/show/$page->ID}/{$page->Version}";
-					$link = "<a href=\"{$url}\">here</a>";
-					$return['compareVersionsLink'] = $link;
-					$member = DataObject::get_by_id('Member', $lastTwoVersions[1]->LastEditedByID);
-					if ($member) {
-						$return['lastEditor'] = Member::currentUserID() == $member->ID ? 'myself' : $member->getTitle();
+			$object = DataList::create($strClassName)->byID($iID);
+
+			if($object){
+
+				$editorDetails = ConcurrentEditingDataObject::GetConcurrentEditorsDataObject($strClassName, $iID);
+
+				$member = Member::currentUser();
+				$arrCurrentlyEditing = $editorDetails->UsersCurrentlyEditing ? unserialize($editorDetails->UsersCurrentlyEditing) : array();
+				$iNumberOfEditors = count($arrCurrentlyEditing);
+				$strKey = 'M_' . $member->ID;
+
+				if(!array_key_exists($strKey, $arrCurrentlyEditing)){
+					$arrCurrentlyEditing[$strKey] = array(
+						'Name'		 => $member->getName(),
+						'LastEdited' => DateUtils::MYSQLDateTime(DateUtils::CurrentDateTime())
+					);
+				}
+
+				// check who else is editing.
+				$arrNames = array();
+				foreach($arrCurrentlyEditing as $strCurrentKey => $arrEditor){
+					if($strCurrentKey != $strKey){
+						$arrNames[] = $arrEditor['Name'];
 					}
 				}
+				$arrRet = array(
+					'status' => 'Notediting',
+					'names' => $arrNames,
+					'isLastEditor' => false,
+					'edit' => true,
+					'editId'=>	$editorDetails->LastEditedByID
+				);
+
+				if ($object->LastEditedByID == $member->ID) {
+					$arrRet['isLastEditor'] = True;
+				}
+				if(count($arrNames)){
+					$arrRet['status']='editing';
+				}
+				if($object->LastEdited == $strLastEditted){
+					$arrRet['edit']=false;
+				}
+
+				$arrValidMembers = array();
+				// delete the old pings from
+				$dtTimeOut = DateUtils::AddMinutesToDate(DateUtils::CurrentDateTime(), self::$edit_timeout * -1);
+				foreach($arrCurrentlyEditing as $strKey => $arrEditor){
+					$dtCurrentTime = DateUtils::MysqlDateTimeToPHPTime($arrEditor['LastEdited']);
+					if($dtCurrentTime >= $dtTimeOut){
+						$arrValidMembers[$strKey] = $arrEditor;
+					}
+				}
+
+				if($iNumberOfEditors != count($arrValidMembers)){
+					$editorDetails->UsersCurrentlyEditing = serialize($arrValidMembers);
+					$editorDetails->write();
+				}
 			}
-			// Has it been published since the CMS first loaded it?
-			$usersSaveCount = isset($_REQUEST['SaveCount']) ? $_REQUEST['SaveCount'] : $page->SaveCount;
-			if ($usersSaveCount < $page->SaveCount) {
-				$return['status'] = 'not_current_version';
-			}
+
 		}
 
-		// Delete pings older than *timeout* from the cache...
-		DB::query("DELETE FROM \"SiteTree_UsersCurrentlyEditing\" WHERE \"LastPing\" < '".date('Y-m-d H:i:s', time()-self::$edit_timeout)."'");
+		return Convert::array2json($arrRet);
 
-		return Convert::array2json($return);
 	}
 
-	function restoreRemotelyDeleted() {
-		$response = singleton('CMSMain')->restore();
-	}
 
-	function onAfterSave(&$record) {
-		$record->SaveCount++;
-		$record->writeWithoutVersion();
-		FormResponse::add('CurrentPage.setSaveCount('.$record->SaveCount.');');
-	}
 }

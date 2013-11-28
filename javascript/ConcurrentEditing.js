@@ -2,14 +2,23 @@
 (function($){
 
     var CurrentPage = {
-        id: function() { return $('#Form_EditForm_ID') ? $('#Form_EditForm_ID').val() : null; },
-        saveCount: function() { return $('#SiteTree_Alert') ? $('#SiteTree_Alert').attr('savecount') : null; },
+        id: function() {
+            var idString = $('#Form_ItemEditForm').attr("action").split('/');
+            return $('#Form_ItemEditForm') ? idString[7] : null;
+        },
+        lastEdit: function() { return $('#SiteTree_Alert') ? $('#SiteTree_Alert').attr('lastedit') : null; },
         setSaveCount: function(count) { if ($('#SiteTree_Alert')) { $('#SiteTree_Alert').attr('savecount', count); } },
-        isDeleted: function() { return $('#SiteTree_Alert') ? $('#SiteTree_Alert').attr('deletedfromstage') : null; }
+        isDeleted: function() { return $('#SiteTree_Alert') ? $('#SiteTree_Alert').attr('deletedfromstage') : null; },
+        getObject: function() {
+            var idString = $('#Form_ItemEditForm').attr("action").split('/');
+            //console.log(idString);
+            return  $('#Form_ItemEditForm') ? idString[5] : null;
+        }
     };
 
 
     var timerID = null;
+
     var saveHasBeenClicked = false;
     var showOverwroteMessage = false;
 
@@ -22,61 +31,29 @@
      * concurrent editing status.
      */
     function pingFunction() {
-        if ($('#Form_EditForm_ID') && $('#SiteTree_Alert') && !window.location.toString().match(/compareversions/)) {
-            var url = "ConcurentEditingLeftAndMain_Controller/concurrentEditingPing?ID="+CurrentPage.id()+'&SaveCount='+CurrentPage.saveCount();
+        if ($('#Form_ItemEditForm') && $('#SiteTree_Alert') && !window.location.toString().match(/compareversions/)) {
+            var url = "ConcurentEditingLeftAndMain_Controller/concurrentEditingPing?Object="+CurrentPage.getObject()+"&ID="+CurrentPage.id()+'&lastedit='+CurrentPage.lastEdit();
             $.ajax(url, {
                 success: function(data) {
                     var data = eval("("+data+")");
                     var hasAlert = false;
                     switch(data.status) {
+                        case 'notediting':
+                            $('#SiteTree_Alert').html("");
                         case 'editing':
-                            if (showOverwroteMessage && data.isLastEditor) {
-                                if(data.lastEditor == 'myself') {
-                                    showOverwroteMessage = false;
-                                    break;
+                            if(data.isLastEditor){
+                                $('#page-title-heading').append($('#SiteTree_Alert').html("This record is also being edited by "+data.names.join(', ')+" "+" You are the last editor "));
+                            }else{
+                                if(data.edit){
+                                    $('#page-title-heading').append( $('#SiteTree_Alert').html(" This record has been saved since you opened it. You may want to reload it, or risk overwriting changes. "));
+                                    $('#SiteTree_Alert').attr("lastedit",data.editId);
+                                }else{
+                                    $('#page-title-heading').append($('#SiteTree_Alert').html("This record is also being edited by "+data.names.join(', ')+" "+ " you are not the last editor "));
                                 }
+                            }
+                            saveHasBeenClicked = false;
+                            hasAlert = true;
 
-                                $('#SiteTree_Alert').css({
-                                    border: '2px solid #FFD324',
-                                    background: '#fff6bf'
-                                });
-                                $('#SiteTree_Alert').html("You just overwrote the version saved by " + data.lastEditor + ".  Compare those versions " + data.compareVersionsLink);
-                                setTimeout(function() { showOverwroteMessage = false; }, getSetting('overwriteDisplayDuration') * 10000);
-                                break;
-                            }
-                            $('#SiteTree_Alert').css({
-                                border: '2px solid #B5D4FE',
-                                background: '#F8FAFC'
-                            }).html("This page is also being edited by: "+data.names.join(', '));
-                            console.log("ok");
-                            saveHasBeenClicked = false;
-                            hasAlert = true;
-                            break;
-                        case 'deleted':
-                            // handle deletion by another user (but not us, or if we're already looking at a deleted version)
-                            if (CurrentPage.isDeleted() == 0) {
-                                strHTML = "This page has been deleted recently.";
-                                strHTML += " <a href='" + data.viewDeletedUrl + "'>View</a> or <a href='" + data.restoreDeletedUrl + "'>restore</a>.";
-                                $('#SiteTree_Alert').css({
-                                    border: '2px solid #ffd324',
-                                    background: '#fff6bf'
-                                }).html(strHTML);
-                                jQuery('#form_actions_right input').attr("disabled", 'disabled');
-                                jQuery('#form_actions_right').fadeTo("slow", 0.25);
-                                hasAlert = true;
-                            }
-                            saveHasBeenClicked = false;
-                            break;
-                        case 'not_current_version':
-                            // handle another user publishing
-                            strHTML = "This page has been saved since you opened it. You may want to reload it, or risk overwriting changes.";
-                            $('#SiteTree_Alert').css({
-                                border: '2px solid #FFD324',
-                                background: '#fff6bf'
-                            }).html(strHTML);
-                            hasAlert = true;
-                            showOverwroteMessage = true;
-                            saveHasBeenClicked = false;
                             break;
                         case 'not_found':
                             break;
@@ -102,16 +79,15 @@
 
     $.entwine('ConcurrentEditingNamespace', function($){
 
-        $('#Form_EditForm').entwine({
+        $('#Form_ItemEditForm').entwine({
             onmatch: function(){
-                //this.observeMethod('PageLoaded', this.adminPageHandler);
-                //this.observeMethod('BeforeSave', this.beforeSave);
                 $('#SiteTree_Alert').hide();
                 this.adminPageHandler();
             },
             adminPageHandler: function(){
-                if (!timerID && ($('#Form_EditForm_ID') && $('#SiteTree_Alert'))) {
-                    timerID = setInterval(pingFunction, getSetting('pagePingInterval')*1000);
+                if (!timerID && ($('#Form_ItemEditForm_ID') && $('#SiteTree_Alert'))) {
+                    pingFunction();
+                    timerID = setInterval(pingFunction, 1000 * $('#SiteTree_Alert').attr('pagepinginterval'));
                 }
             },
             beforeSave: function(){
